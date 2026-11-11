@@ -28,9 +28,14 @@ mkdir -p "$STATE_DIR"
 exec 9>"$STATE_DIR/lock"
 flock -n 9 || { log "Vorige deploy loopt nog"; exit 0; }
 
+# Token via a header file (mode 600) instead of on the curl command line,
+# where it would be visible to every user in the process list (ps).
+AUTH_HEADER="$STATE_DIR/auth-header"
+( umask 077; printf 'Authorization: Bearer %s\n' "$GITHUB_TOKEN" > "$AUTH_HEADER" )
+
 api() {
     curl -fsS --max-time 30 \
-        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H @"$AUTH_HEADER" \
         -H "Accept: application/vnd.github+json" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
         "https://api.github.com/repos/$REPO/$1"
@@ -89,7 +94,7 @@ for a in json.loads(sys.argv[2])["artifacts"]:
         echo "$head_sha" > "$STATE_DIR/failed-sha"
         exit 1
     fi
-    curl -fsSL --max-time 600 -H "Authorization: Bearer $GITHUB_TOKEN" -o "$work/$name.zip" "$artifact_url"
+    curl -fsSL --max-time 600 -H @"$AUTH_HEADER" -o "$work/$name.zip" "$artifact_url"
     unzip -q "$work/$name.zip" -d "$work/$dir"
     if [ ! -f "$work/$dir/$exe" ]; then
         log "Artefact '$name' bevat geen $exe; commit ${head_sha:0:7} wordt overgeslagen"

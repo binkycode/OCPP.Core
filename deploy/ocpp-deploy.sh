@@ -74,6 +74,46 @@ failed_sha=$(cat "$STATE_DIR/failed-sha" 2>/dev/null || true)
 [ "$head_sha" = "$deployed_sha" ] && exit 0
 [ "$head_sha" = "$failed_sha" ] && exit 0
 
+# Do not restart the Server while a charge point is busy: on 2026-11-11 a deploy restarted it right after
+# a StopTransaction, the Alfen never got the reply and kept retrying. The status comes from the database
+# (ConnectorStatus.LastStatus); anything else than Available/Unavailable/Faulted counts as busy.
+# The timer tries again every minute. After MAX_POSTPONE_HOURS (stale status) or with FORCE=1 it deploys anyway.
+MAX_POSTPONE_HOURS=12
+charger_busy() {
+    python3 - "$DB" <<'PY'
+import sqlite3, sys
+try:
+    c = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True, timeout=10)
+    rows = c.execute("SELECT ChargePointId || ':' || ConnectorId || '=' || IFNULL(LastStatus, '?') FROM ConnectorStatus "
+                     "WHERE IFNULL(LastStatus, '') NOT IN ('Available', 'Unavailable', 'Faulted')").fetchall()
+    print(" ".join(r[0] for r in rows))
+except Exception as e:
+    print(f"status onbekend ({e})")
+PY
+}
+postpone_if_busy() {
+    [ "$DRY_RUN" = "1" ] || [ "${FORCE:-0}" = "1" ] && return 0
+    local busy since
+    busy=$(charger_busy)
+    if [ -z "$busy" ]; then
+        rm -f "$STATE_DIR/postponed"
+        return 0
+    fi
+    # Remember since when this commit is waiting; log only once per commit.
+    if [ "$(cut -d' ' -f1 "$STATE_DIR/postponed" 2>/dev/null)" != "$head_sha" ]; then
+        echo "$head_sha $(date +%s)" > "$STATE_DIR/postponed"
+        log "Laadpaal bezig ($busy); deploy van ${head_sha:0:7} uitgesteld tot hij vrij is"
+    fi
+    since=$(cut -d' ' -f2 "$STATE_DIR/postponed")
+    if [ $(( $(date +%s) - since )) -ge $(( MAX_POSTPONE_HOURS * 3600 )) ]; then
+        log "Al ${MAX_POSTPONE_HOURS}u uitgesteld ($busy); deploy gaat nu toch door"
+        return 0
+    fi
+    exit 0
+}
+
+postpone_if_busy
+
 log "Nieuwe build: run $run_id, commit ${head_sha:0:7} (huidige: ${deployed_sha:0:7})"
 
 artifacts_json=$(api "actions/runs/$run_id/artifacts")
@@ -113,6 +153,8 @@ fi
 mkdir -p "$STATE_DIR/previous"
 rsync -a --delete "$APP_ROOT/" "$STATE_DIR/previous/"
 
+# The download took a while: check once more right before restarting.
+postpone_if_busy
 stop_all
 
 # The Server may migrate the database on startup; take a copy while both apps are stopped.

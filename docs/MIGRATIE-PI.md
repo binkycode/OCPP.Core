@@ -242,7 +242,7 @@ OneDrive), de login met de Azure-gebruikers, de API-koppeling en Hangfire zijn a
 4. Het bestand op de Pi zetten:
    ```bash
    scp <doel>.sqlite srvrasp05:/mnt/data/ocpp/OCPP.Core.sqlite.nieuw
-   ssh srvrasp05 'cd /mnt/data/ocpp && sudo systemctl stop OcppManagement OcppServer && mv OCPP.Core.sqlite OCPP.Core.sqlite.proef && rm -f OCPP.Core.sqlite-wal OCPP.Core.sqlite-shm && mv OCPP.Core.sqlite.nieuw OCPP.Core.sqlite && sudo systemctl start OcppServer OcppManagement'
+   ssh -t srvrasp05 'cd /mnt/data/ocpp && sudo systemctl stop OcppManagement OcppServer && mv OCPP.Core.sqlite OCPP.Core.sqlite.proef && rm -f OCPP.Core.sqlite-wal OCPP.Core.sqlite-shm && mv OCPP.Core.sqlite.nieuw OCPP.Core.sqlite && sudo systemctl start OcppServer OcppManagement'
    ```
 5. In **ACE Service Installer** → Connectivity → Network Profile 1 → CSMS URL
    `ws://192.168.0.160:8081/OCPP` invullen (Security Profile blijft 0) en **Save**.

@@ -230,6 +230,18 @@ OneDrive), de login met de Azure-gebruikers, de API-koppeling en Hangfire zijn a
 - **Opgelet:** zolang Azure en de Pi allebei draaien, versturen ze op 1 januari om 18:00 allebei de
   kwartaalmail. Doe de overstap dus vóór 1 januari 2027.
 
+**Fase D: overstap gedaan (2026-11-11).**
+
+| Tijd | Stap |
+|---|---|
+| 17:01 | Status van Azure: laadpaal online, connector Available, geen sessie bezig. Beide Azure-webapps gestopt |
+| 17:02–17:07 | Definitieve migratie, alle controles OK (1 463 transacties, 499 568 logregels, 12 831,822 kWh) |
+| 17:08 | Database op de Pi gewisseld. De proefversie staat als `OCPP.Core.sqlite.proef` ernaast |
+| ~17:09 | CSMS URL in ACE omgezet. De laadpaal kwam pas na een paar minuten door |
+| 17:10:22 | Laadpaal verbonden met de Pi: BootNotification en StatusNotifications, connector Available, meterstand 15 020,656 |
+
+Nog te doen: een echte laadsessie met badge (stap 6 hieronder), en daarna fase E.
+
 ## 6. Overstap (fase D), ongeveer 30 minuten, als er niet geladen wordt
 
 1. Controleren dat er geen actieve laadsessie is, in de Azure Management-UI of in de Alfen-app.

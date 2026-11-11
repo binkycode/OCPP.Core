@@ -168,48 +168,90 @@ gebeurt in fase C via het dashboard.
 
 ## 4. Datamigratie Azure SQL → SQLite
 
-Aanpak: een **eenmalige console-tool** (`tools/OCPP.Core.Migrate`, niet in de solution-build) die
-`OCPPCoreContext` twee keer opent (SqlServer als bron, SQLite als doel) en de tabellen kopieert met
-**behoud van de primaire sleutels**. Dat is belangrijk voor `TransactionId`, omdat de laadpaal naar
-transactie-ID's verwijst.
+Tool: **`tools/OCPP.Core.Migrate`**. Die zit bewust niet in de solution, dus CI bouwt hem niet. De tool doet het volgende:
 
-- Volgorde: `ChargePoint` → `ChargeTags` → `ConnectorStatus` → `Transactions` → (optioneel) `MessageLog`.
-- De hele database is maar ongeveer 118 MB, dus **alles inclusief `MessageLog` meenemen** is geen probleem
-  voor de USB-stick.
-- Het doel is een database die met `Migrate()` is aangemaakt (het `AutoMigrateDB`-pad van de Server), zodat
-  `__EFMigrationsHistory` klopt. Daarna pas de data importeren.
-- De Hangfire-data niet migreren: de recurring job registreert zichzelf opnieuw.
-- Voorwaarden: tijdelijk een firewallregel op de Azure SQL-server voor je eigen IP, en de connection string
-  uit de Azure-portal. Die zet je lokaal in user-secrets, niet in de repo.
-- Controle na import: aantal rijen per tabel bron = doel, laatste `TransactionId`, en de som van `MeterStop`
-  per laadpaal over het voorbije kwartaal moet gelijk zijn.
+1. Hij maakt het doelbestand aan vanaf `SQLite/OCPP.Core.Empty.sqlite` en voert `Migrate()` uit, zoals de Server dat doet.
+2. Hij controleert of de bron geen kolommen heeft die het EF-model niet kent. Anders stopt hij.
+3. Hij kopieert `ChargePoint` → `ChargeTags` → `ConnectorStatus` → `Transactions` → `MessageLog`, in porties van
+   5 000 rijen, **met behoud van alle primaire sleutels**.
+4. Hij controleert bron en doel tegen elkaar:
+   - aantallen per tabel
+   - hoogste `TransactionId` en `LogId`
+   - aantal open transacties
+   - geladen energie per laadpaal
+   - de laatste transactie veld per veld
+
+Daarna toont hij `sqlite_sequence`, zodat nieuwe ID's verder tellen na de gekopieerde.
+
+Uitvoeren op de pc. De connection string komt rechtstreeks uit Azure en wordt nergens getoond:
+
+```bash
+AZ="/c/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd"
+export OCPP_SOURCE=$("$AZ" webapp config connection-string list -g lsoft-ocpp-svr_group -n lsoft-ocpp-svr -o json   | python -I -c "import json,sys;d=json.loads(sys.stdin.buffer.read().decode('utf-8-sig'));e=[x for x in d if x['name']=='SqlServer'][0]['value'];print(e['value'] if isinstance(e,dict) else e)")
+dotnet run --project tools/OCPP.Core.Migrate -c Release -- SQLite/OCPP.Core.Empty.sqlite <doel>.sqlite
+```
+
+- Firewall: de regel `ClientIp-2023-12-27_19-50-1` (213.118.165.134) is nog steeds het huidige thuis-IP. Een
+  extra regel is dus niet nodig zolang dat IP niet verandert.
+- De Hangfire-tabellen en `__EFMigrationsHistory` uit de bron worden bewust niet gekopieerd.
 
 ## 5. Uitrol in fases
 
 | Fase | Wat | Laadpaal nog op Azure? |
 |---|---|---|
-| A | Codewijzigingen 3.0–3.6 lokaal testen met SQLite (Simulator in `Simulators/`) | ja |
+| A | Codewijzigingen 3.0–3.6 lokaal testen met SQLite | ja |
 | B | `build-pi.yml` en `deploy/` mergen, services en timers op de Pi installeren, met een **lege** SQLite-database | ja |
-
-**Status fase B (2026-11-11):** de `deploy/`-map is klaar (services `OcppServer` en `OcppManagement`, `ocpp-deploy`- en `ocpp-backup`-timers, voorbeeldconfig per app en de installatiestappen in `deploy/README.md`). De voorbeeldconfig is lokaal getest: juiste poorten, alleen de nieuwe ApiKey wordt aanvaard, de standaard-logins zijn vervangen en er komen geen logbestanden. Nog te doen: mergen naar `main`, zodat er een build-artefact op `main` komt, en daarna de installatie op de Pi.
-
-| C | Proefmigratie van de data naar de Pi, Management-UI via Tailscale nakijken, Excel-export eenmaal handmatig starten via het Hangfire-dashboard | ja |
+| C | Proefmigratie van de data naar de Pi, Management-UI nakijken, Excel-export eenmaal handmatig starten | ja |
 | D | **Overstap** (zie §6) | nee |
 | E | Een week parallel beschikbaar laten: Azure stopt met ontvangen, maar wordt nog niet verwijderd | nee |
 | F | Azure opruimen (zie §7) | nee |
 
+**Fase A en B: klaar (2026-11-11).** PR #1 is gemerged. Op de Pi draaien `OcppServer` en `OcppManagement`, met de
+`ocpp-deploy`- en `ocpp-backup`-timers en `tailscale serve` op :8445. De deploy, de back-up (USB, SD en
+OneDrive), de login met de Azure-gebruikers, de API-koppeling en Hangfire zijn allemaal getest.
+
+**Fase C: klaar (2026-11-11).** De proefmigratie duurde 5 minuten en alle controles waren OK:
+
+| Tabel | Rijen |
+|---|---|
+| ChargePoint | 1 (`ENECO_G45102`, "Laadpaal 1 Zwevegem") |
+| ChargeTags | 3 |
+| ConnectorStatus | 1 |
+| Transactions | 1 463 (hoogste ID 1 465) |
+| MessageLog | 499 567 |
+
+- De SQLite-database is 49 MB en geladen energie in totaal 12 831,822 kWh, identiek in bron en doel.
+- Er zijn 3 "open" transacties zonder StopTime (ID 842, 1175 en 1224, uit 2025–2026). Die staan ook zo op Azure:
+  het zijn oude, nooit afgesloten sessies en geen gevolg van de migratie.
+- De proefdatabase staat op de Pi (`/mnt/data/ocpp/OCPP.Core.sqlite`, de lege versie staat als `.leeg` ernaast).
+- De Management-UI toont de laadpaal, de tags en de transacties correct. Pagina's laden in 0,1–0,2 s.
+- De Excel-export is via Hangfire handmatig gestart: de job is geslaagd en de mail is verstuurd naar
+  f.loyson@telenet.be. **Controleer of die aankwam en of het Excel-bestand klopt.**
+- **Opgelet:** zolang Azure en de Pi allebei draaien, versturen ze op 1 januari om 18:00 allebei de
+  kwartaalmail. Doe de overstap dus vóór 1 januari 2027.
+
 ## 6. Overstap (fase D), ongeveer 30 minuten, als er niet geladen wordt
 
-1. Controleren dat er geen actieve laadsessie is (Management-UI op Azure).
-2. Azure-webapp `lsoft-ocpp-svr` **stoppen**. Zo komen er geen nieuwe gegevens meer binnen in Azure.
-3. Definitieve datamigratie draaien (§4) en de controles uitvoeren.
-4. `OCPP.Server.service` en `OCPP.Management.service` op de Pi (her)starten.
-5. In **ACE Service Installer** → Connectivity → Network Profile 1 → CSMS URL:
-   `ws://192.168.0.160:8081/OCPP` (Security Profile blijft 0) → **Save**.
-   Noteer de oude URL om terug te kunnen.
-6. Controleren: de laadpaal staat online in de Management-UI (BootNotification en Heartbeat in de logs),
-   een RFID-badge aanbieden en een korte laadsessie starten en stoppen, waarna de transactie in de UI verschijnt.
-7. Nieuwe `ApiKey` en Hangfire-wachtwoord actief, oude Azure-workflows uitgeschakeld.
+1. Controleren dat er geen actieve laadsessie is, in de Azure Management-UI of in de Alfen-app.
+2. Beide Azure-webapps **stoppen**. Zo komt er geen nieuwe data meer binnen en vertrekt er geen dubbele kwartaalmail:
+   ```bash
+   az webapp stop -g lsoft-ocpp-svr_group -n lsoft-ocpp-svr
+   az webapp stop -g LaadpaalZwevegem -n lsoft-ocpp-mgt
+   ```
+3. Definitieve datamigratie draaien (§4) naar een nieuw bestand. Alle controles moeten OK zijn.
+4. Het bestand op de Pi zetten:
+   ```bash
+   scp <doel>.sqlite srvrasp05:/mnt/data/ocpp/OCPP.Core.sqlite.nieuw
+   ssh -t srvrasp05 'cd /mnt/data/ocpp && sudo systemctl stop OcppManagement OcppServer && mv OCPP.Core.sqlite OCPP.Core.sqlite.proef && rm -f OCPP.Core.sqlite-wal OCPP.Core.sqlite-shm && mv OCPP.Core.sqlite.nieuw OCPP.Core.sqlite && sudo systemctl start OcppServer OcppManagement'
+   ```
+5. In **ACE Service Installer** → Connectivity → Network Profile 1 → CSMS URL
+   `ws://192.168.0.160:8081/OCPP` invullen (Security Profile blijft 0) en **Save**.
+   De oude URL is `ws://lsoft-ocpp-svr.azurewebsites.net/OCPP`.
+6. Controleren:
+   - In `journalctl -u OcppServer -f` verschijnen een BootNotification en daarna Heartbeats.
+   - De laadpaal staat online in de Management-UI.
+   - Een RFID-badge aanbieden en een korte laadsessie starten en stoppen. Die transactie verschijnt
+     dan met ID 1 466 of hoger in de UI.
 
 **Terugdraaien:** CSMS URL terugzetten naar Azure, `lsoft-ocpp-svr` weer starten. Sessies die in de
 tussentijd op de Pi zijn geregistreerd, moet je dan handmatig overzetten. Hou de periode tussen overstap

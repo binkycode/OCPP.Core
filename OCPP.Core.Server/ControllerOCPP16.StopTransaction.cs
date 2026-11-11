@@ -204,6 +204,19 @@ namespace OCPP.Core.Server
                                 DbContext.SaveChanges();
                             }
                         }
+                        else if (transaction != null &&
+                                 transaction.ChargePointId == ChargePointStatus.Id &&
+                                 transaction.StopTime.HasValue &&
+                                 transaction.MeterStop.HasValue &&
+                                 Math.Abs(transaction.MeterStop.Value - (double)stopTransactionRequest.MeterStop / 1000) < 0.0005)
+                        {
+                            // Repeated StopTransaction for a transaction that is already stopped with the same meter value:
+                            // the charge point did not receive our earlier response (e.g. server restart or connection loss)
+                            // and retries. Confirm it again instead of returning an error, otherwise it keeps retrying
+                            // (OCPP 1.6: transaction-related messages are retried until a CallResult is received).
+                            Logger.LogInformation("StopTransaction => Repeated stop for already stopped transaction id={0} / chargepoint={1} => confirmed again", stopTransactionRequest.TransactionId, ChargePointStatus?.Id);
+                            WriteMessageLog(ChargePointStatus?.Id, transaction.ConnectorId, msgIn.Action, string.Format("RepeatedStop:ID={0}/Meter={1}", stopTransactionRequest.TransactionId, stopTransactionRequest.MeterStop), null);
+                        }
                         else
                         {
                             Logger.LogError("StopTransaction => Unknown or not matching transaction: id={0} / chargepoint={1} / tag={2}", stopTransactionRequest.TransactionId, ChargePointStatus?.Id, idTag);

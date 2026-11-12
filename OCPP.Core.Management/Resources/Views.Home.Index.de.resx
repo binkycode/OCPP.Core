@@ -141,4 +141,19 @@
   <data name="Unavailable" xml:space="preserve">
     <value>Nicht verfügbar</value>
   </data>
+  <data name="Power" xml:space="preserve">
+    <value>Leistung</value>
+  </data>
+  <data name="Duration" xml:space="preserve">
+    <value>Ladedauer</value>
+  </data>
+  <data name="LastCharge" xml:space="preserve">
+    <value>Letzte Ladung</value>
+  </data>
+  <data name="ShowTransactions" xml:space="preserve">
+    <value>Transaktionen</value>
+  </data>
+  <data name="DragToRotate" xml:space="preserve">
+    <value>Ziehen zum Drehen</value>
+  </data>
 </root>

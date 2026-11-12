@@ -4,8 +4,68 @@
 @{
     ViewData["Title"] = @Localizer["Title"];
 }
+@if (Model != null && Model.ChargePoints.Count > 0)
+{
+    // Hero: the occupied connector, otherwise the first one
+    ChargePointsOverviewViewModel hero = Model.ChargePoints.FirstOrDefault(c => c.ConnectorStatus == ConnectorStatusEnum.Occupied) ?? Model.ChargePoints[0];
+    string heroName = string.IsNullOrWhiteSpace(hero.Name) ? $"{hero.ChargePointId}:{hero.ConnectorId}" : hero.Name;
+    string heroState = hero.ConnectorStatus switch
+    {
+        ConnectorStatusEnum.Occupied => "charging",
+        ConnectorStatusEnum.Faulted => "faulted",
+        ConnectorStatusEnum.Unavailable => "unavailable",
+        _ => "available"
+    };
+    string heroTitle = hero.ConnectorStatus switch
+    {
+        ConnectorStatusEnum.Occupied => Localizer["Charging"].Value,
+        ConnectorStatusEnum.Faulted => Localizer["Faulted"].Value,
+        ConnectorStatusEnum.Unavailable => Localizer["Unavailable"].Value,
+        _ => Localizer["Available"].Value
+    };
+    if (Model.ServerConnection && !hero.Online)
+    {
+        heroState = "offline";
+        heroTitle = Localizer["ChargePointOffline"].Value;
+    }
+    string heroDuration = null;
+    if (hero.StartTime != null && hero.StopTime == null)
+    {
+        TimeSpan ts = DateTime.UtcNow.Subtract(hero.StartTime.Value);
+        heroDuration = $"{(int)ts.TotalHours}:{ts.Minutes:00}";
+    }
+    string heroLast = (hero.MeterStart >= 0 && hero.MeterStop != null) ? $"{hero.MeterStop - hero.MeterStart:0.0} kWh" : null;
+    string displayValue = heroState == "charging" ? (hero.CurrentChargeData?.Split('|')[0].Trim() ?? heroDuration) : heroLast;
+
+    <section class="hero hero-@heroState">
+        <div id="charger-scene" data-state="@heroState" data-label="@heroTitle" data-value="@displayValue" data-power="@hero.CurrentChargeData"></div>
+        <div class="hero-info">
+            <div class="hero-name">@heroName</div>
+            <div class="hero-badge"><span class="hero-dot"></span>@heroTitle</div>
+            <div class="hero-stats">
+                @if (heroState == "charging")
+                {
+                    @if (!string.IsNullOrEmpty(hero.CurrentChargeData))
+                    {
+                        <div class="hero-stat"><span>@Localizer["Power"]</span><strong>@hero.CurrentChargeData</strong></div>
+                    }
+                    @if (heroDuration != null)
+                    {
+                        <div class="hero-stat"><span>@Localizer["Duration"]</span><strong>@heroDuration</strong></div>
+                    }
+                }
+                else if (heroLast != null)
+                {
+                    <div class="hero-stat"><span>@Localizer["LastCharge"]</span><strong>@heroLast</strong></div>
+                }
+            </div>
+            <a class="hero-link" href="~/Home/Transactions/@Uri.EscapeDataString(hero.ChargePointId)/@hero.ConnectorId">@Localizer["ShowTransactions"] <i class="fas fa-arrow-right"></i></a>
+        </div>
+        <div class="hero-hint"><i class="fas fa-sync-alt"></i> @Localizer["DragToRotate"]</div>
+    </section>
+}
 <br />
-@if (Model != null)
+@if (Model != null && Model.ChargePoints.Count > 1)
 {
     <div class="tilegrid">
         @foreach (ChargePointsOverviewViewModel cpvm in Model.ChargePoints)
@@ -80,6 +140,9 @@
             </div>
         }
     </div>
+}
+@if (Model != null)
+{
     @if (!string.IsNullOrEmpty(ViewBag.ErrorMsg))
     {
         <br/>
@@ -89,3 +152,16 @@
     }
 }
 
+
+@section Scripts {
+    @* <!script>: keeps the ASP.NET Core ScriptTagHelper from rewriting this import map *@
+    <!script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+    }
+    </!script>
+    <script type="module" src="~/js/charger-scene.js" asp-append-version="true"></script>
+}

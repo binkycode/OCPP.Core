@@ -26,8 +26,12 @@
                 <ul class="navbar-nav mr-auto">
                     @if (this.User != null && this.User.Identity != null && this.User.Identity.IsAuthenticated)
                     {
-                        <li class="nav-item active">
-                            <a class="nav-link" href="~/">@Localizer["Overview"] <span class="sr-only">(current)</span></a>
+                        string currentAction = ViewContext.RouteData.Values["action"]?.ToString();
+                        <li class="nav-item @(currentAction == "Index" ? "active" : "")">
+                            <a class="nav-link" href="~/">@Localizer["Overview"]</a>
+                        </li>
+                        <li class="nav-item @(currentAction == "Consumption" ? "active" : "")">
+                            <a class="nav-link" href="~/Home/Consumption">@Localizer["Consumption"]</a>
                         </li>
                         @if (this.User.IsInRole(Constants.AdminRoleName))
                         {

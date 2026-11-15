@@ -1,0 +1,231 @@
+@using Microsoft.AspNetCore.Mvc.Localization
+@using System.Globalization
+@using Newtonsoft.Json
+@model ConsumptionViewModel
+@inject IViewLocalizer Localizer
+@{
+    ViewData["Title"] = Localizer["Title"];
+    var monthNames = CultureInfo.CurrentUICulture.DateTimeFormat.AbbreviatedMonthNames.Take(12).Select(m => m.TrimEnd('.')).ToArray();
+    var fullMonthNames = CultureInfo.CurrentUICulture.DateTimeFormat.MonthNames.Take(12).ToArray();
+    int prevYear = Model.Year - 1;
+    bool hasPrevious = Model.PreviousMonths.Any(m => m.Sessions > 0);
+    double perSession = Model.TotalSessions > 0 ? Model.TotalEnergy / Model.TotalSessions : 0;
+    double perMonth = Model.MonthsElapsed > 0 ? Model.TotalEnergy / Model.MonthsElapsed : 0;
+    double? change = (Model.PreviousSamePeriodEnergy.HasValue && Model.PreviousSamePeriodEnergy.Value > 0)
+        ? (Model.TotalEnergy - Model.PreviousSamePeriodEnergy.Value) / Model.PreviousSamePeriodEnergy.Value * 100
+        : (double?)null;
+    int minYear = Model.Years.Count > 0 ? Model.Years.Min(y => y.Year) : Model.Year;
+    int maxYear = Math.Max(DateTime.Now.Year, Model.Years.Count > 0 ? Model.Years.Max(y => y.Year) : Model.Year);
+
+    var chartData = new
+    {
+        labels = monthNames,
+        fullLabels = fullMonthNames,
+        year = Model.Year,
+        prevYear,
+        current = Model.Months.Select(m => Math.Round(m.Energy, 1)),
+        currentSessions = Model.Months.Select(m => m.Sessions),
+        previous = hasPrevious ? Model.PreviousMonths.Select(m => Math.Round(m.Energy, 1)) : null,
+        previousSessions = Model.PreviousMonths.Select(m => m.Sessions),
+        years = Model.Years.Select(y => y.Year),
+        yearEnergy = Model.Years.Select(y => Math.Round(y.Energy, 1)),
+        yearSessions = Model.Years.Select(y => y.Sessions),
+        sessionsLabel = Localizer["Sessions"].Value,
+        url = Url.Action("Consumption"),
+    };
+}
+
+<div class="consumption">
+    <div class="d-flex flex-wrap align-items-center justify-content-between mt-4 mb-3">
+        <h1 class="h3 mb-2">@Localizer["Title"]</h1>
+        <nav class="year-nav mb-2" aria-label="@Localizer["Year"]">
+            @if (Model.Year > minYear)
+            {
+                <a class="btn btn-secondary btn-sm" href="@Url.Action("Consumption", new { year = Model.Year - 1 })" title="@(Model.Year - 1)"><i class="fas fa-chevron-left"></i></a>
+            }
+            @for (int y = minYear; y <= maxYear; y++)
+            {
+                <a class="btn btn-sm @(y == Model.Year ? "btn-primary" : "btn-secondary")" href="@Url.Action("Consumption", new { year = y })">@y</a>
+            }
+            @if (Model.Year < maxYear)
+            {
+                <a class="btn btn-secondary btn-sm" href="@Url.Action("Consumption", new { year = Model.Year + 1 })" title="@(Model.Year + 1)"><i class="fas fa-chevron-right"></i></a>
+            }
+        </nav>
+    </div>
+
+    <div class="kpi-row">
+        <div class="kpi kpi-hero">
+            <span>@Localizer["Charged"] @Model.Year</span>
+            <strong>@Model.TotalEnergy.ToString("N0") <small>kWh</small></strong>
+            @if (change.HasValue)
+            {
+                <em class="@(change.Value >= 0 ? "up" : "down")">
+                    <i class="fas @(change.Value >= 0 ? "fa-arrow-up" : "fa-arrow-down")"></i>
+                    @Math.Abs(change.Value).ToString("N0")% @string.Format(Localizer["VsPrevious"].Value, prevYear)@(Model.IsCurrentYear ? " " + Localizer["SamePeriod"].Value : "")
+                </em>
+            }
+        </div>
+        <div class="kpi"><span>@Localizer["Sessions"]</span><strong>@Model.TotalSessions</strong></div>
+        <div class="kpi"><span>@Localizer["PerSession"]</span><strong>@perSession.ToString("N1") <small>kWh</small></strong></div>
+        <div class="kpi"><span>@Localizer["PerMonth"]</span><strong>@perMonth.ToString("N0") <small>kWh</small></strong></div>
+    </div>
+
+    @if (Model.TotalSessions == 0)
+    {
+        <div class="alert alert-secondary mt-3">@string.Format(Localizer["NoData"].Value, Model.Year)</div>
+    }
+
+    <div class="row mt-3">
+        <div class="col-lg-8 mb-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h2 class="h6 card-title">@Localizer["PerMonthTitle"] (kWh)</h2>
+                    <div class="chart-box"><canvas id="monthChart" aria-label="@Localizer["PerMonthTitle"]" role="img"></canvas></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h2 class="h6 card-title">@Localizer["PerYearTitle"] (kWh)</h2>
+                    <div class="chart-box"><canvas id="yearChart" aria-label="@Localizer["PerYearTitle"]" role="img"></canvas></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 mb-3">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>@Localizer["Month"]</th>
+                        <th class="text-right">@Model.Year (kWh)</th>
+                        <th class="text-right">@Localizer["Sessions"]</th>
+                        <th class="text-right">@Localizer["PerSession"]</th>
+                        @if (hasPrevious)
+                        {
+                            <th class="text-right text-muted">@prevYear (kWh)</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (int i = 0; i < 12; i++)
+                    {
+                        var m = Model.Months[i];
+                        var p = Model.PreviousMonths[i];
+                        <tr>
+                            <td>@fullMonthNames[i]</td>
+                            <td class="text-right">@(m.Sessions > 0 ? m.Energy.ToString("N1") : "–")</td>
+                            <td class="text-right">@(m.Sessions > 0 ? m.Sessions.ToString() : "–")</td>
+                            <td class="text-right">@(m.Sessions > 0 ? (m.Energy / m.Sessions).ToString("N1") : "–")</td>
+                            @if (hasPrevious)
+                            {
+                                <td class="text-right text-muted">@(p.Sessions > 0 ? p.Energy.ToString("N1") : "–")</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th>@Localizer["Total"]</th>
+                        <th class="text-right">@Model.TotalEnergy.ToString("N1")</th>
+                        <th class="text-right">@Model.TotalSessions</th>
+                        <th class="text-right">@perSession.ToString("N1")</th>
+                        @if (hasPrevious)
+                        {
+                            <th class="text-right text-muted">@Model.PreviousMonths.Sum(x => x.Energy).ToString("N1")</th>
+                        }
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        <div class="col-lg-4 mb-3">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>@Localizer["Year"]</th>
+                        <th class="text-right">kWh</th>
+                        <th class="text-right">@Localizer["Sessions"]</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var y in Model.Years.OrderByDescending(y => y.Year))
+                    {
+                        <tr class="table-row @(y.Year == Model.Year ? "selected" : "")" data-href="@Url.Action("Consumption", new { year = y.Year })">
+                            <td>@y.Year</td>
+                            <td class="text-right">@y.Energy.ToString("N1")</td>
+                            <td class="text-right">@y.Sessions</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <p class="text-muted small">@Localizer["Note"]</p>
+</div>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <script>
+        (function () {
+            if (!window.Chart) return;
+            const d = @Html.Raw(JsonConvert.SerializeObject(chartData));
+            const ink = '#8f9cad', grid = 'rgba(255,255,255,0.06)';
+            const cur = '#3987e5', prev = '#d95926'; // validated categorical pair (dark surface)
+            const nf = new Intl.NumberFormat(document.documentElement.lang || undefined, { maximumFractionDigits: 1 });
+            Chart.defaults.color = ink;
+            Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+            const bar = { borderRadius: { topLeft: 4, topRight: 4 }, borderSkipped: 'bottom', categoryPercentage: 0.72, barPercentage: 0.9 };
+            const scales = {
+                x: { grid: { display: false }, border: { color: grid } },
+                y: { beginAtZero: true, grid: { color: grid }, border: { display: false }, ticks: { callback: v => nf.format(v) } },
+            };
+            const monthSets = [{ label: String(d.year), data: d.current, backgroundColor: cur, ...bar }];
+            if (d.previous) monthSets.unshift({ label: String(d.prevYear), data: d.previous, backgroundColor: prev, ...bar });
+            new Chart(document.getElementById('monthChart'), {
+                type: 'bar',
+                data: { labels: d.labels, datasets: monthSets },
+                options: {
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales,
+                    plugins: {
+                        legend: { display: monthSets.length > 1, position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, useBorderRadius: true, borderRadius: 2 } },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => d.fullLabels[items[0].dataIndex],
+                                label: (c) => {
+                                    const n = (c.dataset.label === String(d.year) ? d.currentSessions : d.previousSessions)[c.dataIndex];
+                                    return `${c.dataset.label}: ${nf.format(c.parsed.y)} kWh · ${n} ${d.sessionsLabel.toLowerCase()}`;
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+
+            new Chart(document.getElementById('yearChart'), {
+                type: 'bar',
+                data: {
+                    labels: d.years.map(String),
+                    datasets: [{
+                        label: 'kWh', data: d.yearEnergy, ...bar,
+                        backgroundColor: d.years.map(y => y === d.year ? cur : 'rgba(57,135,229,0.45)'),
+                    }],
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales,
+                    onClick: (e, els) => { if (els.length) location.href = d.url + '?year=' + d.years[els[0].index]; },
+                    onHover: (e, els) => { e.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: (c) => `${nf.format(c.parsed.y)} kWh · ${d.yearSessions[c.dataIndex]} ${d.sessionsLabel.toLowerCase()}` } },
+                    },
+                },
+            });
+        })();
+    </script>
+}

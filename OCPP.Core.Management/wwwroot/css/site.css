@@ -286,3 +286,27 @@ select.form-control option { background-color: var(--surface); color: var(--text
 
 /* the hero blends into the dark page */
 .hero { box-shadow: 0 0 0 1px var(--border), 0 18px 40px rgba(0, 0, 0, .45); }
+
+/* ---------- Consumption report ---------- */
+.year-nav .btn { margin-left: 4px; }
+.kpi-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 12px; }
+.kpi {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+}
+.kpi span { display: block; font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.kpi strong { display: block; font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+.kpi strong small { font-size: .9rem; font-weight: 500; color: var(--muted); }
+.kpi-hero strong { font-size: 2.2rem; }
+.kpi em { display: block; font-style: normal; font-size: .85rem; color: var(--muted); }
+.kpi em i { font-size: .75rem; }
+.chart-box { position: relative; height: 280px; }
+.consumption .table td, .consumption .table th { font-variant-numeric: tabular-nums; }
+.consumption tr.selected td { background-color: rgba(57, 135, 229, .12); }
+@media (max-width: 768px) {
+    .kpi-row { grid-template-columns: 1fr 1fr; }
+    .kpi-hero { grid-column: 1 / -1; }
+    .chart-box { height: 220px; }
+}

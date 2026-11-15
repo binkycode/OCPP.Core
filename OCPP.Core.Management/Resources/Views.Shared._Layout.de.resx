@@ -138,4 +138,7 @@
   <data name="Overview" xml:space="preserve">
     <value>Übersicht</value>
   </data>
+  <data name="Consumption" xml:space="preserve">
+    <value>Verbrauch</value>
+  </data>
 </root>

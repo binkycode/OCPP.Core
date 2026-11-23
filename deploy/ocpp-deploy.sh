@@ -11,6 +11,8 @@ DB="/mnt/data/ocpp/OCPP.Core.sqlite"
 STATE_DIR="/home/frederic/.local/state/ocpp-deploy"
 ENV_FILE="/home/frederic/.config/ocpp-deploy.env"
 DRY_RUN="${DRY_RUN:-0}"
+# Appended to every artifact name; set ARTIFACT_SUFFIX=-arm64 in the env file on a 64-bit Pi.
+ARTIFACT_SUFFIX=""
 
 # artifact name | app subdir | executable | systemd service | health URL
 APPS=(
@@ -20,6 +22,7 @@ APPS=(
 
 log() { echo "$(date '+%F %T') $*"; }
 
+# The env file may override the defaults above (e.g. ARTIFACT_SUFFIX).
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 : "${GITHUB_TOKEN:?GITHUB_TOKEN ontbreekt in $ENV_FILE}"
@@ -127,10 +130,10 @@ for entry in "${APPS[@]}"; do
 for a in json.loads(sys.argv[2])["artifacts"]:
     if a["name"] == sys.argv[1] and not a["expired"]:
         print(a["archive_download_url"])
-        break' "$name" "$artifacts_json"
+        break' "$name$ARTIFACT_SUFFIX" "$artifacts_json"
     )
     if [ -z "$artifact_url" ]; then
-        log "Artefact '$name' niet gevonden of verlopen; commit ${head_sha:0:7} wordt overgeslagen"
+        log "Artefact '$name$ARTIFACT_SUFFIX' niet gevonden of verlopen; commit ${head_sha:0:7} wordt overgeslagen"
         echo "$head_sha" > "$STATE_DIR/failed-sha"
         exit 1
     fi
